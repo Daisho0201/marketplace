@@ -138,11 +138,25 @@ def user_info():
 
 # User class for Flask-Login
 class User(UserMixin):
-    def __init__(self, id, username, email):
-        self.id = id
-        self.username = username
-        self.email = email
-        self.profile_picture = None
+    def __init__(self):
+        self.id = None
+        self.username = None
+    
+    @staticmethod
+    def get(user_id):
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute('SELECT * FROM users WHERE id = %s', (user_id,))
+        user_data = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if user_data:
+            user = User()
+            user.id = user_data['id']
+            user.username = user_data['username']
+            return user
+        return None
 
 # Index route to display homepage
 @app.route('/')
@@ -691,51 +705,40 @@ def login():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        try:
-            username = request.form['username']
-            password = request.form['password']
-            email = request.form['email']
-            
-            # Hash the password
-            hashed_password = generate_password_hash(password)
-            
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            
-            # Check if username already exists
-            cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
-            if cursor.fetchone():
-                cursor.close()
-                conn.close()
-                flash('Username already exists')
-                return redirect(url_for('register'))
-            
-            # Check if email already exists
-            cursor.execute('SELECT * FROM users WHERE email = %s', (email,))
-            if cursor.fetchone():
-                cursor.close()
-                conn.close()
-                flash('Email already exists')
-                return redirect(url_for('register'))
-            
-            # Insert new user
-            cursor.execute(
-                'INSERT INTO users (username, password, email) VALUES (%s, %s, %s)',
-                (username, hashed_password, email)
-            )
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-            
-            flash('Registration successful! Please login.')
-            return redirect(url_for('login'))
-            
-        except Exception as e:
-            print(f"Registration error: {str(e)}")  # Add this for debugging
-            flash('Registration failed. Please try again.')
-            return redirect(url_for('register'))
-    
+        # Collect data from the form
+        first_name = request.form['first_name']
+        last_name = request.form['last_name']
+        username = request.form['username']
+        email = request.form['email']
+        password = request.form['password']
+        confirm_password = request.form['confirm_password']
+
+        # Validate passwords match
+        if password != confirm_password:
+            return "Passwords do not match. Please try again."
+
+        # Connect to the database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Check if the username or email already exists
+        cursor.execute("SELECT * FROM users WHERE username = %s OR email = %s", (username, email))
+        if cursor.fetchone():
+            return "Username or email already exists. Please try another."
+
+        # Hash the password and insert the new user into the database
+        hashed_password = generate_password_hash(password)
+        cursor.execute(
+            "INSERT INTO users (first_name, last_name, username, email, password) VALUES (%s, %s, %s, %s, %s)",
+            (first_name, last_name, username, email, hashed_password)
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        # Redirect to the login page upon successful registration
+        return redirect(url_for('login'))
+
     return render_template('register.html')
 
 

@@ -59,7 +59,7 @@ def get_db_connection():
             user=os.getenv('DB_USER', 'avnadmin'),
             password=os.getenv('DB_PASSWORD', 'AVNS_1z1MpJQf9fVC_t-eNwP'),
             database=os.getenv('DB_NAME', 'defaultdb'),
-            ssl_disabled=True  # Changed this line
+            ssl_disabled=True
         )
         print("Successfully connected to database")
         return connection
@@ -67,29 +67,38 @@ def get_db_connection():
         print(f"Error connecting to MySQL: {e}")
         raise e
 
-# Create the items table
-def create_items_table():
+def create_tables():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute(''' 
-        CREATE TABLE IF NOT EXISTS items (
+    
+    # Create users table first
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            price DECIMAL(10, 2) NOT NULL,
-            description TEXT NOT NULL,
-            quality ENUM('new', 'used_like_new', 'used_good', 'used_fair') NOT NULL,
-            category VARCHAR(100) NOT NULL,
-            meetup_place VARCHAR(255) NOT NULL,
-            seller_phone VARCHAR(15) NOT NULL,
-            grid_image VARCHAR(255),
-            detail_images TEXT,
-            user_id INT,
-            FOREIGN KEY (user_id) REFERENCES users(id)
+            username VARCHAR(100) UNIQUE NOT NULL,
+            password VARCHAR(255) NOT NULL,
+            email VARCHAR(100) UNIQUE NOT NULL
         )
     ''')
+    
+    # Then create items table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(100) NOT NULL,
+            description TEXT,
+            price DECIMAL(10,2),
+            seller_id INT,
+            FOREIGN KEY (seller_id) REFERENCES users(id)
+        )
+    ''')
+    
     conn.commit()
     cursor.close()
     conn.close()
+
+# Initialize tables when the app starts
+create_tables()
 
 # Example in-memory database (replace with a real database for production)
 proofs_data = []
@@ -750,9 +759,6 @@ def load_user(user_id):
         return User(user_data['id'], user_data['username'], user_data['email'])
     return None
 
-# Ensure to create the items table when the application starts
-create_items_table()
-
 @app.route('/post_item', methods=['GET', 'POST'])
 @login_required
 def post_item():
@@ -866,38 +872,5 @@ def update_users_table():
 # Add this near the bottom of your file, before the if __name__ == '__main__': line
 update_users_table()
 
-def create_tables():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Create users table first
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(100) UNIQUE NOT NULL,
-            password VARCHAR(255) NOT NULL,
-            email VARCHAR(100) UNIQUE NOT NULL
-        )
-    ''')
-    
-    # Then create items table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS items (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            title VARCHAR(100) NOT NULL,
-            description TEXT,
-            price DECIMAL(10,2),
-            seller_id INT,
-            FOREIGN KEY (seller_id) REFERENCES users(id)
-        )
-    ''')
-    
-    conn.commit()
-    cursor.close()
-    conn.close()
-
 if __name__ == '__main__':
     app.run(debug=True)
-
-# Initialize tables when the app starts
-create_tables()

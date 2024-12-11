@@ -896,6 +896,8 @@ def create_tables():
     cursor.close()
     conn.close()
 
-# Update the initialization
 if __name__ == '__main__':
-    create_tables()
+    app.run(debug=True)
+
+# Initialize tables when the app starts
+create_tables()

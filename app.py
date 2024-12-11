@@ -655,40 +655,61 @@ def proceed_purchase(item_id):
 def login():
     if request.method == 'POST':
         try:
-            username = request.form['username']
-            password = request.form['password']
-            
-            # Debug print
-            print(f"Login attempt for username: {username}")
-            
+            # Step 1: Get form data
+            print("Starting login process...")
+            username = request.form.get('username')
+            password = request.form.get('password')
+            print(f"Received login request for username: {username}")
+
+            # Step 2: Database connection
+            print("Connecting to database...")
             conn = get_db_connection()
             cursor = conn.cursor()
-            
-            # Get user from database
-            cursor.execute('SELECT id, username, password FROM users WHERE username = %s', (username,))
+            print("Database connection successful")
+
+            # Step 3: Query user
+            print("Querying database...")
+            query = "SELECT id, username, password FROM users WHERE username = %s"
+            cursor.execute(query, (username,))
             user = cursor.fetchone()
-            
+            print(f"Query result: {user}")
+
+            # Step 4: Close database connection
             cursor.close()
             conn.close()
+            print("Database connection closed")
+
+            # Step 5: Check user and password
+            if not user:
+                print("User not found")
+                flash('Invalid username or password')
+                return redirect(url_for('login'))
+
+            if not check_password_hash(user[2], password):
+                print("Invalid password")
+                flash('Invalid username or password')
+                return redirect(url_for('login'))
+
+            # Step 6: Login user
+            print("Password verified, creating user object")
+            user_obj = User()
+            user_obj.id = user[0]
+            user_obj.username = user[1]
             
-            # Debug print
-            print(f"Found user: {user}")
-            
-            if user and check_password_hash(user[2], password):
-                user_obj = User()
-                user_obj.id = user[0]
-                user_obj.username = user[1]
-                login_user(user_obj)
-                return redirect(url_for('index'))
-            
-            flash('Invalid username or password')
-            return redirect(url_for('login'))
-            
+            print("Logging in user")
+            login_user(user_obj)
+            print("User logged in successfully")
+
+            return redirect(url_for('index'))
+
         except Exception as e:
-            print(f"Login error: {str(e)}")  # This will show in the Render logs
+            import traceback
+            print(f"Login error: {str(e)}")
+            print("Traceback:")
+            print(traceback.format_exc())
             flash('An error occurred during login')
             return redirect(url_for('login'))
-    
+
     return render_template('login.html')
 
 

@@ -138,11 +138,29 @@ def user_info():
 
 # User class for Flask-Login
 class User(UserMixin):
-    def __init__(self, id, username, email):
-        self.id = id
-        self.username = username
-        self.email = email
-        self.profile_picture = None
+    def __init__(self):
+        self.id = None
+        self.username = None
+    
+    @staticmethod
+    def get(user_id):
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute('SELECT * FROM users WHERE id = %s', (user_id,))
+            user_data = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            
+            if user_data:
+                user = User()
+                user.id = user_data['id']
+                user.username = user_data['username']
+                return user
+            return None
+        except Exception as e:
+            print(f"Error in User.get: {str(e)}")
+            return None
 
 # Index route to display homepage
 @app.route('/')
@@ -654,36 +672,48 @@ def proceed_purchase(item_id):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        email = request.form.get('email')  # Fetch email instead of username
-        password = request.form.get('password')
-
-        if not email or not password:  # Check for missing email or password
-            return "Missing email or password", 400  # Return an informative error
-
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-
         try:
-            # Query to check for the user's email
-            cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
-            user_data = cursor.fetchone()
-
-            # Validate user and password
-            if user_data and check_password_hash(user_data['password'], password):  # Use hashed password check
-                user = User(user_data['id'], user_data['username'], user_data['email'])  # Create User object
-                login_user(user)  # Log in the user with Flask-Login
-                session['user_id'] = user.id  # Store user ID in session
-                return redirect(url_for('main_index'))  # Redirect to main_index on successful login
-
-            return "Invalid email or password", 401  # Handle invalid login
-        except Exception as e:
-            return f"An error occurred: {e}", 500  # Handle unexpected errors
-        finally:
+            username = request.form['username']
+            password = request.form['password']
+            
+            print(f"Login attempt for username: {username}")  # Debug log
+            
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            # Get user from database
+            cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
+            user = cursor.fetchone()
+            
             cursor.close()
-            conn.close()  # Ensure the database connection is closed
-
-    # Render the login form for GET requests
-    return render_template('homepage.html')
+            conn.close()
+            
+            print(f"Database returned user: {user}")  # Debug log
+            
+            if user and check_password_hash(user['password'], password):
+                print("Password verified successfully")  # Debug log
+                
+                # Create user object for Flask-Login
+                user_obj = User()
+                user_obj.id = user['id']
+                user_obj.username = user['username']
+                
+                # Log in the user
+                login_user(user_obj)
+                print(f"User logged in: {user_obj.username}")  # Debug log
+                
+                flash('Logged in successfully!')
+                return redirect(url_for('main_index'))
+            else:
+                flash('Invalid username or password')
+                return redirect(url_for('login'))
+                
+        except Exception as e:
+            print(f"Login error: {str(e)}")  # Debug log
+            flash('An error occurred during login')
+            return redirect(url_for('login'))
+    
+    return render_template('login.html')
 
 
 
@@ -740,15 +770,7 @@ def logout():
 # User loader function for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
-    user_data = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    if user_data:
-        return User(user_data['id'], user_data['username'], user_data['email'])
-    return None
+    return User.get(user_id)
 
 # Ensure to create the items table when the application starts
 create_items_table()
@@ -801,35 +823,49 @@ def post_item():
 @app.route('/update_profile_picture', methods=['POST'])
 @login_required
 def update_profile_picture():
-    try:
-        if 'profile_picture' not in request.files:
-            return jsonify({'success': False, 'error': 'No file uploaded'})
-        
-        file = request.files['profile_picture']
-        if file.filename == '':
-            return jsonify({'success': False, 'error': 'No file selected'})
-        
-        if file:
-            # Upload to cloudinary or your preferred storage
-            # Update the URL in database
+    if 'profile_picture' not in request.files:
+        return jsonify({'success': False, 'error': 'No file uploaded'})
+    
+    file = request.files['profile_picture']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No file selected'})
+
+    if file and allowed_file(file.filename):
+        try:
+            # Upload to Cloudinary with specific options
+            upload_result = cloudinary.uploader.upload(
+                file,
+                folder="profile_pictures",  # Store in a specific folder
+                transformation=[
+                    {'width': 300, 'height': 300, 'crop': 'fill'},  # Resize and crop to square
+                    {'quality': 'auto:good'}  # Optimize quality
+                ]
+            )
+            
+            # Update database with the new profile picture URL
             conn = get_db_connection()
             cursor = conn.cursor()
             
-            # For now, just store the filename
-            cursor.execute('UPDATE users SET profile_picture = %s WHERE id = %s',
-                         (file.filename, current_user.id))
+            cursor.execute(
+                "UPDATE users SET profile_picture = %s WHERE id = %s",
+                (upload_result['secure_url'], session['user_id'])
+            )
+            
             conn.commit()
             cursor.close()
             conn.close()
             
+            # Return the new profile picture URL
             return jsonify({
                 'success': True,
-                'profile_picture_url': file.filename
+                'profile_picture_url': upload_result['secure_url']
             })
             
-    except Exception as e:
-        print(f"Error updating profile picture: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)})
+        except Exception as e:
+            print(f"Error uploading profile picture: {str(e)}")  # Debug log
+            return jsonify({'success': False, 'error': str(e)})
+    
+    return jsonify({'success': False, 'error': 'Invalid file type'})
 
 # Add this function to create/update the users table
 def update_users_table():

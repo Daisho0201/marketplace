@@ -45,6 +45,7 @@ os.makedirs(DETAIL_UPLOAD_FOLDER, exist_ok=True)
 # Initialize Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
+login_manager.login_view = 'login'
 
 # Allowed file check
 def allowed_file(filename):
@@ -138,16 +139,18 @@ def user_info():
 
 # User class for Flask-Login
 class User(UserMixin):
-    def __init__(self):
-        self.id = None
-        self.username = None
-    
+    def __init__(self, id, username, email):
+        self.id = id
+        self.username = username
+        self.email = email
+        self.profile_picture = None
+
     @staticmethod
     def get(user_id):
         try:
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
-            cursor.execute('SELECT * FROM users WHERE id = %s', (user_id,))
+            cursor.execute('SELECT id, username FROM users WHERE id = %s', (user_id,))
             user_data = cursor.fetchone()
             cursor.close()
             conn.close()
@@ -673,43 +676,51 @@ def proceed_purchase(item_id):
 def login():
     if request.method == 'POST':
         try:
-            username = request.form['username']
-            password = request.form['password']
+            print("Starting login process...")
             
-            print(f"Login attempt for username: {username}")  # Debug log
+            # Get form data
+            username = request.form.get('username')
+            password = request.form.get('password')
+            print(f"Attempting login for username: {username}")
             
+            # Connect to database
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
+            print("Database connection successful")
             
-            # Get user from database
-            cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
+            # Query user
+            cursor.execute('SELECT id, username, password FROM users WHERE username = %s', (username,))
             user = cursor.fetchone()
+            print(f"Query result: {user}")
             
             cursor.close()
             conn.close()
+            print("Database connection closed")
             
-            print(f"Database returned user: {user}")  # Debug log
-            
+            # Verify user and password
             if user and check_password_hash(user['password'], password):
-                print("Password verified successfully")  # Debug log
+                print("Password verified successfully")
                 
-                # Create user object for Flask-Login
+                # Create user object
                 user_obj = User()
                 user_obj.id = user['id']
                 user_obj.username = user['username']
                 
-                # Log in the user
+                # Login user
                 login_user(user_obj)
-                print(f"User logged in: {user_obj.username}")  # Debug log
+                print(f"User logged in successfully: {user_obj.username}")
                 
-                flash('Logged in successfully!')
                 return redirect(url_for('main_index'))
             else:
+                print("Invalid username or password")
                 flash('Invalid username or password')
                 return redirect(url_for('login'))
                 
         except Exception as e:
-            print(f"Login error: {str(e)}")  # Debug log
+            import traceback
+            print(f"Login error: {str(e)}")
+            print("Full traceback:")
+            print(traceback.format_exc())
             flash('An error occurred during login')
             return redirect(url_for('login'))
     

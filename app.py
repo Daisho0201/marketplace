@@ -52,14 +52,20 @@ def allowed_file(filename):
 
 # Database connection
 def get_db_connection():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST'),
-        port=int(os.getenv('DB_PORT')),  # Make sure to convert port to integer
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'),
-        database=os.getenv('DB_NAME'),
-        ssl_mode='REQUIRED'  # Add SSL mode for Aiven
-    )
+    try:
+        connection = mysql.connector.connect(
+            host=os.getenv('DB_HOST', 'mysql-1eef0d0e-marketplace-e1a9.f.aivencloud.com'),
+            port=int(os.getenv('DB_PORT', '28562')),
+            user=os.getenv('DB_USER', 'avnadmin'),
+            password=os.getenv('DB_PASSWORD', 'AVNS_1z1MpJQf9fVC_t-eNwP'),
+            database=os.getenv('DB_NAME', 'defaultdb'),
+            ssl_mode='REQUIRED'  # Required for Aiven
+        )
+        print("Successfully connected to database")
+        return connection
+    except Error as e:
+        print(f"Error connecting to MySQL: {e}")
+        raise e
 
 # Create the items table
 def create_items_table():

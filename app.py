@@ -59,7 +59,7 @@ def get_db_connection():
             user=os.getenv('DB_USER', 'avnadmin'),
             password=os.getenv('DB_PASSWORD', 'AVNS_1z1MpJQf9fVC_t-eNwP'),
             database=os.getenv('DB_NAME', 'defaultdb'),
-            ssl_disabled=True
+            ssl_disabled=True  # Changed this line
         )
         print("Successfully connected to database")
         return connection
@@ -67,38 +67,29 @@ def get_db_connection():
         print(f"Error connecting to MySQL: {e}")
         raise e
 
-def create_tables():
+# Create the items table
+def create_items_table():
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    # Create users table first
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(100) UNIQUE NOT NULL,
-            password VARCHAR(255) NOT NULL,
-            email VARCHAR(100) UNIQUE NOT NULL
-        )
-    ''')
-    
-    # Then create items table
-    cursor.execute('''
+    cursor.execute(''' 
         CREATE TABLE IF NOT EXISTS items (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            title VARCHAR(100) NOT NULL,
-            description TEXT,
-            price DECIMAL(10,2),
-            seller_id INT,
-            FOREIGN KEY (seller_id) REFERENCES users(id)
+            name VARCHAR(255) NOT NULL,
+            price DECIMAL(10, 2) NOT NULL,
+            description TEXT NOT NULL,
+            quality ENUM('new', 'used_like_new', 'used_good', 'used_fair') NOT NULL,
+            category VARCHAR(100) NOT NULL,
+            meetup_place VARCHAR(255) NOT NULL,
+            seller_phone VARCHAR(15) NOT NULL,
+            grid_image VARCHAR(255),
+            detail_images TEXT,
+            user_id INT,
+            FOREIGN KEY (user_id) REFERENCES users(id)
         )
     ''')
-    
     conn.commit()
     cursor.close()
     conn.close()
-
-# Initialize tables when the app starts
-create_tables()
 
 # Example in-memory database (replace with a real database for production)
 proofs_data = []
@@ -700,40 +691,51 @@ def login():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        # Collect data from the form
-        first_name = request.form['first_name']
-        last_name = request.form['last_name']
-        username = request.form['username']
-        email = request.form['email']
-        password = request.form['password']
-        confirm_password = request.form['confirm_password']
-
-        # Validate passwords match
-        if password != confirm_password:
-            return "Passwords do not match. Please try again."
-
-        # Connect to the database
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        # Check if the username or email already exists
-        cursor.execute("SELECT * FROM users WHERE username = %s OR email = %s", (username, email))
-        if cursor.fetchone():
-            return "Username or email already exists. Please try another."
-
-        # Hash the password and insert the new user into the database
-        hashed_password = generate_password_hash(password)
-        cursor.execute(
-            "INSERT INTO users (first_name, last_name, username, email, password) VALUES (%s, %s, %s, %s, %s)",
-            (first_name, last_name, username, email, hashed_password)
-        )
-        conn.commit()
-        cursor.close()
-        conn.close()
-
-        # Redirect to the login page upon successful registration
-        return redirect(url_for('login'))
-
+        try:
+            username = request.form['username']
+            password = request.form['password']
+            email = request.form['email']
+            
+            # Hash the password
+            hashed_password = generate_password_hash(password)
+            
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Check if username already exists
+            cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
+            if cursor.fetchone():
+                cursor.close()
+                conn.close()
+                flash('Username already exists')
+                return redirect(url_for('register'))
+            
+            # Check if email already exists
+            cursor.execute('SELECT * FROM users WHERE email = %s', (email,))
+            if cursor.fetchone():
+                cursor.close()
+                conn.close()
+                flash('Email already exists')
+                return redirect(url_for('register'))
+            
+            # Insert new user
+            cursor.execute(
+                'INSERT INTO users (username, password, email) VALUES (%s, %s, %s)',
+                (username, hashed_password, email)
+            )
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            flash('Registration successful! Please login.')
+            return redirect(url_for('login'))
+            
+        except Exception as e:
+            print(f"Registration error: {str(e)}")  # Add this for debugging
+            flash('Registration failed. Please try again.')
+            return redirect(url_for('register'))
+    
     return render_template('register.html')
 
 
@@ -758,6 +760,9 @@ def load_user(user_id):
     if user_data:
         return User(user_data['id'], user_data['username'], user_data['email'])
     return None
+
+# Ensure to create the items table when the application starts
+create_items_table()
 
 @app.route('/post_item', methods=['GET', 'POST'])
 @login_required
@@ -872,5 +877,35 @@ def update_users_table():
 # Add this near the bottom of your file, before the if __name__ == '__main__': line
 update_users_table()
 
+def create_tables():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Create users table first
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            username VARCHAR(100) UNIQUE NOT NULL,
+            password VARCHAR(255) NOT NULL,
+            email VARCHAR(100) UNIQUE NOT NULL
+        )
+    ''')
+    
+    # Then create items table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(100) NOT NULL,
+            description TEXT,
+            price DECIMAL(10,2),
+            seller_id INT,
+            FOREIGN KEY (seller_id) REFERENCES users(id)
+        )
+    ''')
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    create_tables()

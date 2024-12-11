@@ -147,11 +147,13 @@ class User(UserMixin):
 # Index route to display homepage
 @app.route('/')
 def index():
-    try:
-        return render_template('homepage.html')  # Changed from index.html to homepage.html
-    except Exception as e:
-        print(f"Error in index route: {str(e)}")
-        return "An error occurred", 500
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)  # Use dictionary cursor for named access
+    cursor.execute("SELECT * FROM items")  # Fetch all items from the database
+    items = cursor.fetchall()  # Get all items as a list of dictionaries
+    cursor.close()
+    conn.close()
+    return render_template('homepage.html', items=items)
 
 # Homepage route
 @app.route('/homepage')
@@ -255,16 +257,11 @@ def delete_item(item_id):
 def get_user_items(user_id):
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    try:
-        cursor.execute("SELECT * FROM items WHERE seller_id = %s", (user_id,))
-        items = cursor.fetchall()
-        return items
-    except Exception as e:
-        print(f"Error fetching user items: {str(e)}")
-        return []
-    finally:
-        cursor.close()
-        conn.close()
+    cursor.execute("SELECT * FROM items WHERE user_id = %s", (user_id,))
+    items = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return items
 
 # Function to get all items
 def get_all_items():
@@ -278,17 +275,12 @@ def get_all_items():
 
 # Route for main index
 @app.route('/main_index')
-@login_required
+@login_required  # Ensure the user is logged in
 def main_index():
-    try:
-        user_items = get_user_items(current_user.id)
-        return render_template('main_index.html', 
-                             username=current_user.username,
-                             items=user_items)
-    except Exception as e:
-        print(f"Error in main_index: {str(e)}")
-        flash('An error occurred while loading the page')
-        return redirect(url_for('index'))
+    user_id = session['user_id']  # Assuming user_id is stored in the session
+    user_items = get_user_items(user_id)  # Fetch user items from the database
+    all_items = get_all_items()  # Fetch all items for display
+    return render_template('main_index.html', user_items=user_items, all_items=all_items)
 
 
 @app.route('/filter/<category>', methods=['GET'])
@@ -809,49 +801,35 @@ def post_item():
 @app.route('/update_profile_picture', methods=['POST'])
 @login_required
 def update_profile_picture():
-    if 'profile_picture' not in request.files:
-        return jsonify({'success': False, 'error': 'No file uploaded'})
-    
-    file = request.files['profile_picture']
-    if file.filename == '':
-        return jsonify({'success': False, 'error': 'No file selected'})
-
-    if file and allowed_file(file.filename):
-        try:
-            # Upload to Cloudinary with specific options
-            upload_result = cloudinary.uploader.upload(
-                file,
-                folder="profile_pictures",  # Store in a specific folder
-                transformation=[
-                    {'width': 300, 'height': 300, 'crop': 'fill'},  # Resize and crop to square
-                    {'quality': 'auto:good'}  # Optimize quality
-                ]
-            )
-            
-            # Update database with the new profile picture URL
+    try:
+        if 'profile_picture' not in request.files:
+            return jsonify({'success': False, 'error': 'No file uploaded'})
+        
+        file = request.files['profile_picture']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'})
+        
+        if file:
+            # Upload to cloudinary or your preferred storage
+            # Update the URL in database
             conn = get_db_connection()
             cursor = conn.cursor()
             
-            cursor.execute(
-                "UPDATE users SET profile_picture = %s WHERE id = %s",
-                (upload_result['secure_url'], session['user_id'])
-            )
-            
+            # For now, just store the filename
+            cursor.execute('UPDATE users SET profile_picture = %s WHERE id = %s',
+                         (file.filename, current_user.id))
             conn.commit()
             cursor.close()
             conn.close()
             
-            # Return the new profile picture URL
             return jsonify({
                 'success': True,
-                'profile_picture_url': upload_result['secure_url']
+                'profile_picture_url': file.filename
             })
             
-        except Exception as e:
-            print(f"Error uploading profile picture: {str(e)}")  # Debug log
-            return jsonify({'success': False, 'error': str(e)})
-    
-    return jsonify({'success': False, 'error': 'Invalid file type'})
+    except Exception as e:
+        print(f"Error updating profile picture: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)})
 
 # Add this function to create/update the users table
 def update_users_table():

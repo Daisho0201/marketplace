@@ -45,6 +45,7 @@ os.makedirs(DETAIL_UPLOAD_FOLDER, exist_ok=True)
 # Initialize Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
+login_manager.login_view = 'login'
 
 # Allowed file check
 def allowed_file(filename):
@@ -98,46 +99,41 @@ proofs_data = []
 @app.route('/user_info', methods=['GET', 'POST'])
 @login_required
 def user_info():
+    user_id = session['user_id']
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    
+
     if request.method == 'POST':
-        try:
-            # Update user information
-            cursor.execute('''
-                UPDATE users 
-                SET first_name = %s, 
-                    last_name = %s, 
-                    phone = %s, 
-                    address = %s 
-                WHERE id = %s
-            ''', (
-                request.form.get('first_name', ''),
-                request.form.get('last_name', ''),
-                request.form.get('phone', ''),
-                request.form.get('address', ''),
-                current_user.id
-            ))
-            conn.commit()
-            flash('Profile updated successfully!')
-            
-        except Exception as e:
-            print(f"Error updating user info: {str(e)}")
-            flash('Error updating profile')
-            conn.rollback()
+        # Handle form submission for user info updates
+        first_name = request.form['first_name']
+        last_name = request.form['last_name']
+        username = request.form['username']
+        email = request.form['email']
+
+        # Update user information
+        cursor.execute(
+            "UPDATE users SET first_name = %s, last_name = %s, username = %s, email = %s WHERE id = %s",
+            (first_name, last_name, username, email, user_id)
+        )
+        conn.commit()
+
+    # Fetch current user information
+    cursor.execute(
+        "SELECT first_name, last_name, username, email, profile_picture FROM users WHERE id = %s", 
+        (user_id,)
+    )
+    user_data = cursor.fetchone()
     
-    # Get current user info
-    try:
-        cursor.execute('SELECT * FROM users WHERE id = %s', (current_user.id,))
-        user_data = cursor.fetchone()
-    except Exception as e:
-        print(f"Error fetching user info: {str(e)}")
-        user_data = {}
-    
+    # Debug: Print user data to console
+    print("User Data:", user_data)  # This will help debug if the profile_picture URL is being retrieved
+
+    # Fetch posted items
+    posted_items = get_user_items(user_id)
+
     cursor.close()
     conn.close()
-    
-    return render_template('user_info.html', user=user_data)
+
+    return render_template('user_info.html', user=user_data, posted_items=posted_items)
 
 
 
@@ -152,13 +148,11 @@ class User(UserMixin):
 # Index route to display homepage
 @app.route('/')
 def index():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)  # Use dictionary cursor for named access
-    cursor.execute("SELECT * FROM items")  # Fetch all items from the database
-    items = cursor.fetchall()  # Get all items as a list of dictionaries
-    cursor.close()
-    conn.close()
-    return render_template('homepage.html', items=items)
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        print(f"Error in index route: {str(e)}")
+        return "An error occurred", 500
 
 # Homepage route
 @app.route('/homepage')
@@ -875,43 +869,32 @@ def create_tables():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    try:
-        # Create users table with additional fields
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                username VARCHAR(100) UNIQUE NOT NULL,
-                password VARCHAR(255) NOT NULL,
-                email VARCHAR(100) UNIQUE NOT NULL,
-                first_name VARCHAR(100),
-                last_name VARCHAR(100),
-                phone VARCHAR(20),
-                address TEXT,
-                profile_picture VARCHAR(255)
-            )
-        ''')
-        
-        # Create items table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS items (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                title VARCHAR(100) NOT NULL,
-                description TEXT,
-                price DECIMAL(10,2),
-                seller_id INT,
-                FOREIGN KEY (seller_id) REFERENCES users(id)
-            )
-        ''')
-        
-        conn.commit()
-        print("Tables created successfully")
-        
-    except Exception as e:
-        print(f"Error creating tables: {str(e)}")
-        
-    finally:
-        cursor.close()
-        conn.close()
+    # Create users table first
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            username VARCHAR(100) UNIQUE NOT NULL,
+            password VARCHAR(255) NOT NULL,
+            email VARCHAR(100) UNIQUE NOT NULL
+        )
+    ''')
+    
+    # Then create items table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(100) NOT NULL,
+            description TEXT,
+            price DECIMAL(10,2),
+            seller_id INT,
+            FOREIGN KEY (seller_id) REFERENCES users(id)
+        )
+    ''')
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 if __name__ == '__main__':
     create_tables()
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))

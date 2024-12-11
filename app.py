@@ -45,7 +45,6 @@ os.makedirs(DETAIL_UPLOAD_FOLDER, exist_ok=True)
 # Initialize Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login'
 
 # Allowed file check
 def allowed_file(filename):
@@ -139,11 +138,9 @@ def user_info():
 
 # User class for Flask-Login
 class User(UserMixin):
-    def __init__(self, id, username, email):
-        self.id = id
-        self.username = username
-        self.email = email
-        self.profile_picture = None
+    def __init__(self):
+        self.id = None
+        self.username = None
 
     @staticmethod
     def get(user_id):
@@ -675,56 +672,36 @@ def proceed_purchase(item_id):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        email = request.form.get('email')  # Fetch email instead of username
+        password = request.form.get('password')
+
+        if not email or not password:  # Check for missing email or password
+            return "Missing email or password", 400  # Return an informative error
+
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
         try:
-            print("Starting login process...")
-            
-            # Get form data
-            username = request.form.get('username')
-            password = request.form.get('password')
-            print(f"Attempting login for username: {username}")
-            
-            # Connect to database
-            conn = get_db_connection()
-            cursor = conn.cursor(dictionary=True)
-            print("Database connection successful")
-            
-            # Query user
-            cursor.execute('SELECT id, username, password FROM users WHERE username = %s', (username,))
-            user = cursor.fetchone()
-            print(f"Query result: {user}")
-            
-            cursor.close()
-            conn.close()
-            print("Database connection closed")
-            
-            # Verify user and password
-            if user and check_password_hash(user['password'], password):
-                print("Password verified successfully")
-                
-                # Create user object
-                user_obj = User()
-                user_obj.id = user['id']
-                user_obj.username = user['username']
-                
-                # Login user
-                login_user(user_obj)
-                print(f"User logged in successfully: {user_obj.username}")
-                
-                return redirect(url_for('main_index'))
-            else:
-                print("Invalid username or password")
-                flash('Invalid username or password')
-                return redirect(url_for('login'))
-                
+            # Query to check for the user's email
+            cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+            user_data = cursor.fetchone()
+
+            # Validate user and password
+            if user_data and check_password_hash(user_data['password'], password):  # Use hashed password check
+                user = User(user_data['id'], user_data['username'], user_data['email'])  # Create User object
+                login_user(user)  # Log in the user with Flask-Login
+                session['user_id'] = user.id  # Store user ID in session
+                return redirect(url_for('main_index'))  # Redirect to main_index on successful login
+
+            return "Invalid email or password", 401  # Handle invalid login
         except Exception as e:
-            import traceback
-            print(f"Login error: {str(e)}")
-            print("Full traceback:")
-            print(traceback.format_exc())
-            flash('An error occurred during login')
-            return redirect(url_for('login'))
-    
-    return render_template('login.html')
+            return f"An error occurred: {e}", 500  # Handle unexpected errors
+        finally:
+            cursor.close()
+            conn.close()  # Ensure the database connection is closed
+
+    # Render the login form for GET requests
+    return render_template('homepage.html')
 
 
 
@@ -781,7 +758,15 @@ def logout():
 # User loader function for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
-    return User.get(user_id)
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+    user_data = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    if user_data:
+        return User(user_data['id'], user_data['username'], user_data['email'])
+    return None
 
 # Ensure to create the items table when the application starts
 create_items_table()

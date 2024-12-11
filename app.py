@@ -45,7 +45,6 @@ os.makedirs(DETAIL_UPLOAD_FOLDER, exist_ok=True)
 # Initialize Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login'
 
 # Allowed file check
 def allowed_file(filename):
@@ -149,7 +148,7 @@ class User(UserMixin):
 @app.route('/')
 def index():
     try:
-        return render_template('index.html')
+        return render_template('homepage.html')  # Changed from index.html to homepage.html
     except Exception as e:
         print(f"Error in index route: {str(e)}")
         return "An error occurred", 500
@@ -256,11 +255,16 @@ def delete_item(item_id):
 def get_user_items(user_id):
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM items WHERE user_id = %s", (user_id,))
-    items = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return items
+    try:
+        cursor.execute("SELECT * FROM items WHERE seller_id = %s", (user_id,))
+        items = cursor.fetchall()
+        return items
+    except Exception as e:
+        print(f"Error fetching user items: {str(e)}")
+        return []
+    finally:
+        cursor.close()
+        conn.close()
 
 # Function to get all items
 def get_all_items():
@@ -274,12 +278,17 @@ def get_all_items():
 
 # Route for main index
 @app.route('/main_index')
-@login_required  # Ensure the user is logged in
+@login_required
 def main_index():
-    user_id = session['user_id']  # Assuming user_id is stored in the session
-    user_items = get_user_items(user_id)  # Fetch user items from the database
-    all_items = get_all_items()  # Fetch all items for display
-    return render_template('main_index.html', user_items=user_items, all_items=all_items)
+    try:
+        user_items = get_user_items(current_user.id)
+        return render_template('main_index.html', 
+                             username=current_user.username,
+                             items=user_items)
+    except Exception as e:
+        print(f"Error in main_index: {str(e)}")
+        flash('An error occurred while loading the page')
+        return redirect(url_for('index'))
 
 
 @app.route('/filter/<category>', methods=['GET'])
@@ -897,4 +906,3 @@ def create_tables():
 
 if __name__ == '__main__':
     create_tables()
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))

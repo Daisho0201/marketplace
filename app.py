@@ -654,63 +654,36 @@ def proceed_purchase(item_id):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        email = request.form.get('email')  # Fetch email instead of username
+        password = request.form.get('password')
+
+        if not email or not password:  # Check for missing email or password
+            return "Missing email or password", 400  # Return an informative error
+
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
         try:
-            # Step 1: Get form data
-            print("Starting login process...")
-            username = request.form.get('username')
-            password = request.form.get('password')
-            print(f"Received login request for username: {username}")
+            # Query to check for the user's email
+            cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+            user_data = cursor.fetchone()
 
-            # Step 2: Database connection
-            print("Connecting to database...")
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            print("Database connection successful")
+            # Validate user and password
+            if user_data and check_password_hash(user_data['password'], password):  # Use hashed password check
+                user = User(user_data['id'], user_data['username'], user_data['email'])  # Create User object
+                login_user(user)  # Log in the user with Flask-Login
+                session['user_id'] = user.id  # Store user ID in session
+                return redirect(url_for('main_index'))  # Redirect to main_index on successful login
 
-            # Step 3: Query user
-            print("Querying database...")
-            query = "SELECT id, username, password FROM users WHERE username = %s"
-            cursor.execute(query, (username,))
-            user = cursor.fetchone()
-            print(f"Query result: {user}")
-
-            # Step 4: Close database connection
-            cursor.close()
-            conn.close()
-            print("Database connection closed")
-
-            # Step 5: Check user and password
-            if not user:
-                print("User not found")
-                flash('Invalid username or password')
-                return redirect(url_for('login'))
-
-            if not check_password_hash(user[2], password):
-                print("Invalid password")
-                flash('Invalid username or password')
-                return redirect(url_for('login'))
-
-            # Step 6: Login user
-            print("Password verified, creating user object")
-            user_obj = User()
-            user_obj.id = user[0]
-            user_obj.username = user[1]
-            
-            print("Logging in user")
-            login_user(user_obj)
-            print("User logged in successfully")
-
-            return redirect(url_for('index'))
-
+            return "Invalid email or password", 401  # Handle invalid login
         except Exception as e:
-            import traceback
-            print(f"Login error: {str(e)}")
-            print("Traceback:")
-            print(traceback.format_exc())
-            flash('An error occurred during login')
-            return redirect(url_for('login'))
+            return f"An error occurred: {e}", 500  # Handle unexpected errors
+        finally:
+            cursor.close()
+            conn.close()  # Ensure the database connection is closed
 
-    return render_template('login.html')
+    # Render the login form for GET requests
+    return render_template('homepage.html')
 
 
 
@@ -897,31 +870,42 @@ def create_tables():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Create users table first
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(100) UNIQUE NOT NULL,
-            password VARCHAR(255) NOT NULL,
-            email VARCHAR(100) UNIQUE NOT NULL
-        )
-    ''')
-    
-    # Then create items table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS items (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            title VARCHAR(100) NOT NULL,
-            description TEXT,
-            price DECIMAL(10,2),
-            seller_id INT,
-            FOREIGN KEY (seller_id) REFERENCES users(id)
-        )
-    ''')
-    
-    conn.commit()
-    cursor.close()
-    conn.close()
+    try:
+        # Create users table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(100) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                email VARCHAR(100) UNIQUE NOT NULL,
+                profile_picture VARCHAR(255)
+            )
+        ''')
+        
+        # Create items table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS items (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(100) NOT NULL,
+                description TEXT,
+                price DECIMAL(10,2),
+                seller_id INT,
+                FOREIGN KEY (seller_id) REFERENCES users(id)
+            )
+        ''')
+        
+        conn.commit()
+        print("Tables created successfully")
+        
+    except Exception as e:
+        print(f"Error creating tables: {str(e)}")
+        
+    finally:
+        cursor.close()
+        conn.close()
+
+# Call this when app starts
+create_tables()
 
 if __name__ == '__main__':
     create_tables()

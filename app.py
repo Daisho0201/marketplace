@@ -138,25 +138,23 @@ def user_info():
 
 # User class for Flask-Login
 class User(UserMixin):
-    def __init__(self):
-        self.id = None
-        self.username = None
+    def __init__(self, id=None, username=None, email=None):
+        self.id = id
+        self.username = username
+        self.email = email
 
     @staticmethod
     def get(user_id):
         try:
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
-            cursor.execute('SELECT id, username FROM users WHERE id = %s', (user_id,))
+            cursor.execute('SELECT id, username, email FROM users WHERE id = %s', (user_id,))
             user_data = cursor.fetchone()
             cursor.close()
             conn.close()
             
             if user_data:
-                user = User()
-                user.id = user_data['id']
-                user.username = user_data['username']
-                return user
+                return User(user_data['id'], user_data['username'], user_data['email'])
             return None
         except Exception as e:
             print(f"Error in User.get: {str(e)}")
@@ -758,15 +756,7 @@ def logout():
 # User loader function for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
-    user_data = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    if user_data:
-        return User(user_data['id'], user_data['username'], user_data['email'])
-    return None
+    return User.get(user_id)
 
 # Ensure to create the items table when the application starts
 create_items_table()

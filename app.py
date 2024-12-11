@@ -98,41 +98,46 @@ proofs_data = []
 @app.route('/user_info', methods=['GET', 'POST'])
 @login_required
 def user_info():
-    user_id = session['user_id']
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-
-    if request.method == 'POST':
-        # Handle form submission for user info updates
-        first_name = request.form['first_name']
-        last_name = request.form['last_name']
-        username = request.form['username']
-        email = request.form['email']
-
-        # Update user information
-        cursor.execute(
-            "UPDATE users SET first_name = %s, last_name = %s, username = %s, email = %s WHERE id = %s",
-            (first_name, last_name, username, email, user_id)
-        )
-        conn.commit()
-
-    # Fetch current user information
-    cursor.execute(
-        "SELECT first_name, last_name, username, email, profile_picture FROM users WHERE id = %s", 
-        (user_id,)
-    )
-    user_data = cursor.fetchone()
     
-    # Debug: Print user data to console
-    print("User Data:", user_data)  # This will help debug if the profile_picture URL is being retrieved
-
-    # Fetch posted items
-    posted_items = get_user_items(user_id)
-
+    if request.method == 'POST':
+        try:
+            # Update user information
+            cursor.execute('''
+                UPDATE users 
+                SET first_name = %s, 
+                    last_name = %s, 
+                    phone = %s, 
+                    address = %s 
+                WHERE id = %s
+            ''', (
+                request.form.get('first_name', ''),
+                request.form.get('last_name', ''),
+                request.form.get('phone', ''),
+                request.form.get('address', ''),
+                current_user.id
+            ))
+            conn.commit()
+            flash('Profile updated successfully!')
+            
+        except Exception as e:
+            print(f"Error updating user info: {str(e)}")
+            flash('Error updating profile')
+            conn.rollback()
+    
+    # Get current user info
+    try:
+        cursor.execute('SELECT * FROM users WHERE id = %s', (current_user.id,))
+        user_data = cursor.fetchone()
+    except Exception as e:
+        print(f"Error fetching user info: {str(e)}")
+        user_data = {}
+    
     cursor.close()
     conn.close()
-
-    return render_template('user_info.html', user=user_data, posted_items=posted_items)
+    
+    return render_template('user_info.html', user=user_data)
 
 
 
@@ -257,17 +262,11 @@ def delete_item(item_id):
 def get_user_items(user_id):
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    try:
-        # Changed user_id to seller_id in the query
-        cursor.execute("SELECT * FROM items WHERE seller_id = %s", (user_id,))
-        items = cursor.fetchall()
-        return items
-    except Exception as e:
-        print(f"Error fetching user items: {str(e)}")
-        return []
-    finally:
-        cursor.close()
-        conn.close()
+    cursor.execute("SELECT * FROM items WHERE user_id = %s", (user_id,))
+    items = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return items
 
 # Function to get all items
 def get_all_items():
@@ -281,17 +280,12 @@ def get_all_items():
 
 # Route for main index
 @app.route('/main_index')
-@login_required
+@login_required  # Ensure the user is logged in
 def main_index():
-    try:
-        user_items = get_user_items(current_user.id)
-        return render_template('main_index.html', 
-                             username=current_user.username,
-                             items=user_items)
-    except Exception as e:
-        print(f"Error in main_index: {str(e)}")
-        flash('An error occurred while loading the page')
-        return redirect(url_for('index'))
+    user_id = session['user_id']  # Assuming user_id is stored in the session
+    user_items = get_user_items(user_id)  # Fetch user items from the database
+    all_items = get_all_items()  # Fetch all items for display
+    return render_template('main_index.html', user_items=user_items, all_items=all_items)
 
 
 @app.route('/filter/<category>', methods=['GET'])
@@ -881,31 +875,43 @@ def create_tables():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Create users table first
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(100) UNIQUE NOT NULL,
-            password VARCHAR(255) NOT NULL,
-            email VARCHAR(100) UNIQUE NOT NULL
-        )
-    ''')
-    
-    # Then create items table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS items (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            title VARCHAR(100) NOT NULL,
-            description TEXT,
-            price DECIMAL(10,2),
-            seller_id INT,
-            FOREIGN KEY (seller_id) REFERENCES users(id)
-        )
-    ''')
-    
-    conn.commit()
-    cursor.close()
-    conn.close()
+    try:
+        # Create users table with additional fields
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(100) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                email VARCHAR(100) UNIQUE NOT NULL,
+                first_name VARCHAR(100),
+                last_name VARCHAR(100),
+                phone VARCHAR(20),
+                address TEXT,
+                profile_picture VARCHAR(255)
+            )
+        ''')
+        
+        # Create items table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS items (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(100) NOT NULL,
+                description TEXT,
+                price DECIMAL(10,2),
+                seller_id INT,
+                FOREIGN KEY (seller_id) REFERENCES users(id)
+            )
+        ''')
+        
+        conn.commit()
+        print("Tables created successfully")
+        
+    except Exception as e:
+        print(f"Error creating tables: {str(e)}")
+        
+    finally:
+        cursor.close()
+        conn.close()
 
 if __name__ == '__main__':
     create_tables()

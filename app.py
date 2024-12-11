@@ -866,6 +866,36 @@ def update_users_table():
 # Add this near the bottom of your file, before the if __name__ == '__main__': line
 update_users_table()
 
+def create_tables():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Create users table first
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            username VARCHAR(100) UNIQUE NOT NULL,
+            password VARCHAR(255) NOT NULL,
+            email VARCHAR(100) UNIQUE NOT NULL
+        )
+    ''')
+    
+    # Then create items table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(100) NOT NULL,
+            description TEXT,
+            price DECIMAL(10,2),
+            seller_id INT,
+            FOREIGN KEY (seller_id) REFERENCES users(id)
+        )
+    ''')
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
 
+# Update the initialization
 if __name__ == '__main__':
-    app.run(debug=True)  # Start the Flask application
+    create_tables()

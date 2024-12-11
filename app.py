@@ -59,7 +59,7 @@ def get_db_connection():
             user=os.getenv('DB_USER', 'avnadmin'),
             password=os.getenv('DB_PASSWORD', 'AVNS_1z1MpJQf9fVC_t-eNwP'),
             database=os.getenv('DB_NAME', 'defaultdb'),
-            ssl_verify_cert=True  # Changed this line
+            ssl_disabled=True  # Changed this line
         )
         print("Successfully connected to database")
         return connection

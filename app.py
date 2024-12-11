@@ -45,7 +45,6 @@ os.makedirs(DETAIL_UPLOAD_FOLDER, exist_ok=True)
 # Initialize Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login'
 
 # Allowed file check
 def allowed_file(filename):
@@ -139,29 +138,11 @@ def user_info():
 
 # User class for Flask-Login
 class User(UserMixin):
-    def __init__(self):
-        self.id = None
-        self.username = None
-    
-    @staticmethod
-    def get(user_id):
-        try:
-            conn = get_db_connection()
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute('SELECT * FROM users WHERE id = %s', (user_id,))
-            user_data = cursor.fetchone()
-            cursor.close()
-            conn.close()
-            
-            if user_data:
-                user = User()
-                user.id = user_data['id']
-                user.username = user_data['username']
-                return user
-            return None
-        except Exception as e:
-            print(f"Error in User.get: {str(e)}")
-            return None
+    def __init__(self, id, username, email):
+        self.id = id
+        self.username = username
+        self.email = email
+        self.profile_picture = None
 
 # Index route to display homepage
 @app.route('/')
@@ -677,39 +658,35 @@ def login():
             username = request.form['username']
             password = request.form['password']
             
-            print(f"Attempting login for user: {username}")  # Debug log
+            # Debug print
+            print(f"Login attempt for username: {username}")
             
             conn = get_db_connection()
-            cursor = conn.cursor(dictionary=True)
+            cursor = conn.cursor()
             
             # Get user from database
-            cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
+            cursor.execute('SELECT id, username, password FROM users WHERE username = %s', (username,))
             user = cursor.fetchone()
-            
-            print(f"Database returned: {user}")  # Debug log
             
             cursor.close()
             conn.close()
             
-            if user and check_password_hash(user['password'], password):
-                print("Password verified successfully")  # Debug log
-                
+            # Debug print
+            print(f"Found user: {user}")
+            
+            if user and check_password_hash(user[2], password):
                 user_obj = User()
-                user_obj.id = user['id']
-                user_obj.username = user['username']
-                
+                user_obj.id = user[0]
+                user_obj.username = user[1]
                 login_user(user_obj)
-                print(f"User logged in: {user_obj.username}")  # Debug log
-                
                 return redirect(url_for('index'))
-            else:
-                print("Invalid username or password")  # Debug log
-                flash('Invalid username or password')
-                return redirect(url_for('login'))
-                
+            
+            flash('Invalid username or password')
+            return redirect(url_for('login'))
+            
         except Exception as e:
-            print(f"Login error: {str(e)}")  # Debug log
-            flash('Login failed. Please try again.')
+            print(f"Login error: {str(e)}")  # This will show in the Render logs
+            flash('An error occurred during login')
             return redirect(url_for('login'))
     
     return render_template('login.html')
@@ -769,7 +746,15 @@ def logout():
 # User loader function for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
-    return User.get(user_id)
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+    user_data = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    if user_data:
+        return User(user_data['id'], user_data['username'], user_data['email'])
+    return None
 
 # Ensure to create the items table when the application starts
 create_items_table()

@@ -140,12 +140,6 @@ def user_info():
     return render_template('user_info.html', user=user_data, posted_items=posted_items)
 
 
-# User class for Flask-Login
-class User(UserMixin):
-    def __init__(self, id=None, username=None, email=None):
-        self.id = id
-        self.username = username
-        self.email = email
 
     @staticmethod
     def get(user_id):
@@ -740,7 +734,7 @@ def register():
             
             if existing_user:
                 flash('Username or email already exists')
-                return redirect(url_for('homepage'))  # Changed from register to homepage
+                return redirect(url_for('register'))
 
             # Hash password and insert new user
             hashed_password = generate_password_hash(password)
@@ -774,10 +768,9 @@ def register():
         except Exception as e:
             print(f"Registration error: {str(e)}")
             flash('An error occurred during registration')
-            return redirect(url_for('homepage'))  # Changed from register to homepage
+            return redirect(url_for('register'))
 
-    # For GET requests, redirect to homepage
-    return redirect(url_for('homepage'))
+    return render_template('register.html')
 
 
 
@@ -941,9 +934,8 @@ def create_tables():
     conn.close()
 
 
-# Initialize database tables
 def init_db():
-    conn = connect_to_database()
+    conn = get_db_connection()
     if conn:
         try:
             cursor = conn.cursor()

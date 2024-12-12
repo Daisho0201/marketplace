@@ -768,9 +768,10 @@ def register():
         except Exception as e:
             print(f"Registration error: {str(e)}")
             flash('An error occurred during registration')
-            return redirect(url_for('register'))
+            return redirect(url_for('homepage'))
 
-    return render_template('register.html')
+    # For GET requests, redirect to homepage
+    return redirect(url_for('homepage'))
 
 
 
@@ -935,7 +936,7 @@ def create_tables():
 
 
 def init_db():
-    conn = get_db_connection()
+    conn = connect_to_database()
     if conn:
         try:
             cursor = conn.cursor()

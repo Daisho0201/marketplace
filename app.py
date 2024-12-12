@@ -138,27 +138,11 @@ def user_info():
 
 # User class for Flask-Login
 class User(UserMixin):
-    def __init__(self, id=None, username=None, email=None):
+    def __init__(self, id, username, email):
         self.id = id
         self.username = username
         self.email = email
-
-    @staticmethod
-    def get(user_id):
-        try:
-            conn = get_db_connection()
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute('SELECT id, username, email FROM users WHERE id = %s', (user_id,))
-            user_data = cursor.fetchone()
-            cursor.close()
-            conn.close()
-            
-            if user_data:
-                return User(user_data['id'], user_data['username'], user_data['email'])
-            return None
-        except Exception as e:
-            print(f"Error in User.get: {str(e)}")
-            return None
+        self.profile_picture = None
 
 # Index route to display homepage
 @app.route('/')
@@ -756,7 +740,15 @@ def logout():
 # User loader function for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
-    return User.get(user_id)
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+    user_data = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    if user_data:
+        return User(user_data['id'], user_data['username'], user_data['email'])
+    return None
 
 # Ensure to create the items table when the application starts
 create_items_table()
@@ -903,6 +895,36 @@ def create_tables():
     conn.commit()
     cursor.close()
     conn.close()
+
+def init_db():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Add profile_picture column if it doesn't exist
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM information_schema.columns 
+            WHERE table_name = 'users' 
+            AND column_name = 'profile_picture'
+        """)
+        
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                ALTER TABLE users 
+                ADD COLUMN profile_picture VARCHAR(255)
+            """)
+            conn.commit()
+            print("Added profile_picture column to users table")
+
+        cursor.close()
+        conn.close()
+
+    except Exception as e:
+        print(f"Error initializing database: {str(e)}")
+
+# Call init_db when the application starts
+init_db()
 
 if __name__ == '__main__':
     create_tables()

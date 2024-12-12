@@ -953,6 +953,7 @@ def create_tables():
     cursor.close()
     conn.close()
 
+
 def init_db():
     try:
         conn = get_db_connection()
@@ -971,7 +972,7 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
+
         # Create saved_items table if it doesn't exist
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS saved_items (
@@ -993,12 +994,32 @@ def init_db():
     except Exception as e:
         print(f"Error initializing database: {str(e)}")
 
-
-
 # Initialize the database when the application starts
 init_db()
 create_items_table()
 
+class StandaloneApplication(BaseApplication):
+    def __init__(self, app, options=None):
+        self.options = options or {}
+        self.application = app
+        super().__init__()
+
+    def load_config(self):
+        for key, value in self.options.items():
+            if key in self.cfg.settings and value is not None:
+                self.cfg.set(key.lower(), value)
+
+    def load(self):
+        return self.application
+
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))  
-    app.run(host='0.0.0.0', port=port)
+    options = {
+        'bind': '0.0.0.0:' + os.environ.get('PORT', '8080'),
+        'workers': 4,
+        'threads': 4,
+        'timeout': 120
+    }
+    StandaloneApplication(app, options).run()
+
+
+

@@ -1,1 +1,1 @@
-web: gunicorn app:app --config gunicorn_config.py 
+web: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 4 --threads 4 --timeout 120 

@@ -255,25 +255,13 @@ def delete_item(item_id):
 
 # Function to get user items
 def get_user_items(user_id):
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        # Changed user_id to seller_id in the WHERE clause
-        cursor.execute("""
-            SELECT i.*, u.username as seller_name 
-            FROM items i 
-            JOIN users u ON i.seller_id = u.id 
-            WHERE i.seller_id = %s
-        """, (user_id,))
-        
-        items = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return items
-    except Exception as e:
-        print(f"Error getting user items: {str(e)}")
-        return []
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM items WHERE user_id = %s", (user_id,))
+    items = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return items
 
 # Function to get all items
 def get_all_items():
@@ -287,8 +275,9 @@ def get_all_items():
 
 # Route for main index
 @app.route('/main_index')
-@login_required
+@login_required  # Ensure the user is logged in
 def main_index():
+    print(f"Accessing main_index for user: {current_user.username}")  # Debug log
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
@@ -303,7 +292,13 @@ def main_index():
         all_items = cursor.fetchall()
         
         # Get user's items
-        user_items = get_user_items(current_user.id)
+        cursor.execute("""
+            SELECT i.*, u.username as seller_name 
+            FROM items i 
+            JOIN users u ON i.seller_id = u.id 
+            WHERE i.seller_id = %s
+        """, (current_user.id,))
+        user_items = cursor.fetchall()
         
         cursor.close()
         conn.close()
@@ -313,7 +308,7 @@ def main_index():
                              all_items=all_items,
                              user_items=user_items)
     except Exception as e:
-        print(f"Error in main_index: {str(e)}")
+        print(f"Error in main_index: {str(e)}")  # Error log
         flash('An error occurred while loading the page')
         return redirect(url_for('index'))
 
@@ -688,10 +683,13 @@ def proceed_purchase(item_id):
 # Route for login
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    print("Starting login process...")  # Debug log
     if request.method == 'POST':
         try:
             username = request.form.get('username')
             password = request.form.get('password')
+            
+            print(f"Attempting login for username: {username}")  # Debug log
             
             if not username or not password:
                 flash('Please enter both username and password')
@@ -700,24 +698,30 @@ def login():
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
             
+            # Get user from database
             cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
             user = cursor.fetchone()
             
             cursor.close()
             conn.close()
             
+            print(f"Database query result: {user}")  # Debug log
+            
             if user and check_password_hash(user['password'], password):
+                # Create user object and log in
                 user_obj = User()
                 user_obj.id = user['id']
                 user_obj.username = user['username']
                 login_user(user_obj)
+                
+                print(f"Login successful for user: {username}")  # Debug log
                 return redirect(url_for('main_index'))
             else:
                 flash('Invalid username or password')
                 return redirect(url_for('index'))
                 
         except Exception as e:
-            print(f"Login error: {str(e)}")
+            print(f"Login error: {str(e)}")  # Error log
             flash('An error occurred during login')
             return redirect(url_for('index'))
     
@@ -933,38 +937,6 @@ def create_tables():
     conn.commit()
     cursor.close()
     conn.close()
-
-# Initialize database tables
-def init_db():
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Check if profile_picture column exists
-        cursor.execute("""
-            SELECT COUNT(*) 
-            FROM information_schema.columns 
-            WHERE table_name = 'users' 
-            AND column_name = 'profile_picture'
-            AND table_schema = DATABASE()
-        """)
-        
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("""
-                ALTER TABLE users 
-                ADD COLUMN profile_picture VARCHAR(255)
-            """)
-            conn.commit()
-            print("Added profile_picture column to users table")
-        
-        cursor.close()
-        conn.close()
-        
-    except Exception as e:
-        print(f"Error initializing database: {str(e)}")
-
-# Call init_db when the application starts
-init_db()
 
 if __name__ == '__main__':
     create_tables()

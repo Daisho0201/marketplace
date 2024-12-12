@@ -27,6 +27,8 @@ cloudinary.config(
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Required for session management
 
+# After your Flask app creation
+app.config['PORT'] = int(os.environ.get('PORT', 10000))
 
 # Set the upload folders for item grid and detail images
 GRID_UPLOAD_FOLDER = 'static/uploads/grid_images'

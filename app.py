@@ -887,12 +887,26 @@ def update_users_table():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Add profile_picture column if it doesn't exist
+        # Check if column exists first
         cursor.execute("""
-            ALTER TABLE users 
-            ADD COLUMN IF NOT EXISTS profile_picture VARCHAR(255)
+            SELECT COUNT(*)
+            FROM information_schema.columns 
+            WHERE table_name = 'users'
+            AND column_name = 'profile_picture'
         """)
+        
+        if cursor.fetchone()[0] == 0:
+            # Add profile_picture column if it doesn't exist
+            cursor.execute("""
+                ALTER TABLE users
+                ADD COLUMN profile_picture VARCHAR(255)
+            """)
+            print("Profile picture column added successfully")
+        else:
+            print("Profile picture column already exists")
+            
         conn.commit()
+        
     except Exception as e:
         print(f"Error updating users table: {e}")
     finally:
@@ -935,33 +949,46 @@ def create_tables():
 
 
 def init_db():
-    conn = connect_to_database()
+    conn = get_db_connection()
     if conn:
         try:
             cursor = conn.cursor()
             
             # Create users table
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id INT AUTO_INCREMENT PRIMARY KEY,
-                    username VARCHAR(255) NOT NULL UNIQUE,
+                    username VARCHAR(255) NOT NULL,
                     email VARCHAR(255) NOT NULL UNIQUE,
                     password VARCHAR(255) NOT NULL,
-                    first_name VARCHAR(255),
-                    last_name VARCHAR(255),
-                    profile_picture VARCHAR(255),
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    profile_picture VARCHAR(255)
                 )
-            ''')
+            """)
+            
+            # Create items table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS items (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    price DECIMAL(10,2) NOT NULL,
+                    seller_id INT,
+                    date_posted TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (seller_id) REFERENCES users(id)
+                )
+            """)
             
             conn.commit()
-            print("Database initialized successfully")
+            print("Successfully connected to database")
             
         except Error as e:
-            print(f"Error initializing database: {e}")
+            print(f"Error creating tables: {e}")
+            
         finally:
-            cursor.close()
-            conn.close()
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
 
 # Initialize the database when the application starts
 init_db()
@@ -982,8 +1009,6 @@ class StandaloneApplication(BaseApplication):
         return self.application
 
 if __name__ == '__main__':
-    init_db()
-    update_users_table()
     options = {
         'bind': '0.0.0.0:' + os.environ.get('PORT', '8080'),
         'workers': 4,

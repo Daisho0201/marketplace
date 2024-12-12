@@ -140,41 +140,31 @@ def user_info():
     return render_template('user_info.html', user=user_data, posted_items=posted_items)
 
 
-
 # User class for Flask-Login
 class User(UserMixin):
     def __init__(self, id=None, username=None, email=None):
         self.id = id
         self.username = username
         self.email = email
-        self.first_name = None
-        self.last_name = None
-        self.profile_picture = None
 
     @staticmethod
     def get(user_id):
-        try:
-            conn = get_db_connection()
+        conn = connect_to_database()
+        if conn:
             cursor = conn.cursor(dictionary=True)
-            cursor.execute('SELECT * FROM users WHERE id = %s', (user_id,))
+            cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
             user_data = cursor.fetchone()
             cursor.close()
             conn.close()
             
             if user_data:
-                user = User(
+                return User(
                     id=user_data['id'],
                     username=user_data['username'],
                     email=user_data['email']
                 )
-                user.first_name = user_data.get('first_name')
-                user.last_name = user_data.get('last_name')
-                user.profile_picture = user_data.get('profile_picture')
-                return user
-            return None
-        except Exception as e:
-            print(f"Error in User.get: {str(e)}")
-            return None
+        return None
+
 # Index route to display homepage
 @app.route('/')
 def index():
@@ -734,7 +724,7 @@ def register():
             # Basic validation
             if not all([first_name, last_name, username, email, password, confirm_password]):
                 flash('All fields are required')
-                return redirect(url_for('register'))
+                return redirect(url_for('homepage'))  # Changed from register to homepage
 
             if password != confirm_password:
                 flash('Passwords do not match')
@@ -750,7 +740,7 @@ def register():
             
             if existing_user:
                 flash('Username or email already exists')
-                return redirect(url_for('register'))
+                return redirect(url_for('homepage'))  # Changed from register to homepage
 
             # Hash password and insert new user
             hashed_password = generate_password_hash(password)
@@ -784,9 +774,10 @@ def register():
         except Exception as e:
             print(f"Registration error: {str(e)}")
             flash('An error occurred during registration')
-            return redirect(url_for('register'))
+            return redirect(url_for('homepage'))  # Changed from register to homepage
 
-    return render_template('register.html')
+    # For GET requests, redirect to homepage
+    return redirect(url_for('homepage'))
 
 
 
@@ -950,45 +941,35 @@ def create_tables():
     conn.close()
 
 
+# Initialize database tables
 def init_db():
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Create users table if it doesn't exist
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                first_name VARCHAR(100) NOT NULL,
-                last_name VARCHAR(100) NOT NULL,
-                username VARCHAR(100) UNIQUE NOT NULL,
-                email VARCHAR(100) UNIQUE NOT NULL,
-                password VARCHAR(255) NOT NULL,
-                profile_picture VARCHAR(255),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        # Create saved_items table if it doesn't exist
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS saved_items (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                user_id INT NOT NULL,
-                item_id INT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id),
-                FOREIGN KEY (item_id) REFERENCES items(id),
-                UNIQUE KEY unique_saved_item (user_id, item_id)
-            )
-        ''')
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        print("Database initialized successfully")
-        
-    except Exception as e:
-        print(f"Error initializing database: {str(e)}")
+    conn = connect_to_database()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            
+            # Create users table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    username VARCHAR(255) NOT NULL UNIQUE,
+                    email VARCHAR(255) NOT NULL UNIQUE,
+                    password VARCHAR(255) NOT NULL,
+                    first_name VARCHAR(255),
+                    last_name VARCHAR(255),
+                    profile_picture VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            conn.commit()
+            print("Database initialized successfully")
+            
+        except Error as e:
+            print(f"Error initializing database: {e}")
+        finally:
+            cursor.close()
+            conn.close()
 
 # Initialize the database when the application starts
 init_db()
@@ -1016,6 +997,43 @@ if __name__ == '__main__':
         'timeout': 120
     }
     StandaloneApplication(app, options).run()
+
+def connect_to_database():
+    try:
+        connection = mysql.connector.connect(
+            host=os.getenv('DB_HOST'),
+            port=int(os.getenv('DB_PORT')),
+            database=os.getenv('DB_NAME'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASSWORD')
+        )
+        
+        if connection.is_connected():
+            print("Successfully connected to database")
+            return connection
+            
+    except Error as e:
+        print(f"Error connecting to database: {e}")
+        return None
+
+def get_db_connection():
+    return connect_to_database()
+
+# Test database connection
+def test_connection():
+    conn = connect_to_database()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            print("Database query successful")
+        except Error as e:
+            print(f"Error executing query: {e}")
+        finally:
+            if conn.is_connected():
+                cursor.close()
+                conn.close()
+                print("Database connection closed")
 
 
 

@@ -83,8 +83,9 @@ def create_items_table():
             seller_phone VARCHAR(15) NOT NULL,
             grid_image VARCHAR(255),
             detail_images TEXT,
-            user_id INT,
-            FOREIGN KEY (user_id) REFERENCES users(id)
+            seller_id INT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (seller_id) REFERENCES users(id)
         )
     ''')
     conn.commit()
@@ -277,40 +278,10 @@ def get_all_items():
 @app.route('/main_index')
 @login_required  # Ensure the user is logged in
 def main_index():
-    print(f"Accessing main_index for user: {current_user.username}")  # Debug log
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        # Get all items
-        cursor.execute("""
-            SELECT i.*, u.username as seller_name 
-            FROM items i 
-            JOIN users u ON i.seller_id = u.id 
-            ORDER BY i.created_at DESC
-        """)
-        all_items = cursor.fetchall()
-        
-        # Get user's items
-        cursor.execute("""
-            SELECT i.*, u.username as seller_name 
-            FROM items i 
-            JOIN users u ON i.seller_id = u.id 
-            WHERE i.seller_id = %s
-        """, (current_user.id,))
-        user_items = cursor.fetchall()
-        
-        cursor.close()
-        conn.close()
-        
-        return render_template('main_index.html', 
-                             username=current_user.username,
-                             all_items=all_items,
-                             user_items=user_items)
-    except Exception as e:
-        print(f"Error in main_index: {str(e)}")  # Error log
-        flash('An error occurred while loading the page')
-        return redirect(url_for('index'))
+    user_id = session['user_id']  # Assuming user_id is stored in the session
+    user_items = get_user_items(user_id)  # Fetch user items from the database
+    all_items = get_all_items()  # Fetch all items for display
+    return render_template('main_index.html', user_items=user_items, all_items=all_items)
 
 
 @app.route('/filter/<category>', methods=['GET'])
@@ -683,49 +654,37 @@ def proceed_purchase(item_id):
 # Route for login
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    print("Starting login process...")  # Debug log
     if request.method == 'POST':
+        email = request.form.get('email')  # Fetch email instead of username
+        password = request.form.get('password')
+
+        if not email or not password:  # Check for missing email or password
+            return "Missing email or password", 400  # Return an informative error
+
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
         try:
-            username = request.form.get('username')
-            password = request.form.get('password')
-            
-            print(f"Attempting login for username: {username}")  # Debug log
-            
-            if not username or not password:
-                flash('Please enter both username and password')
-                return redirect(url_for('index'))
-            
-            conn = get_db_connection()
-            cursor = conn.cursor(dictionary=True)
-            
-            # Get user from database
-            cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
-            user = cursor.fetchone()
-            
-            cursor.close()
-            conn.close()
-            
-            print(f"Database query result: {user}")  # Debug log
-            
-            if user and check_password_hash(user['password'], password):
-                # Create user object and log in
-                user_obj = User()
-                user_obj.id = user['id']
-                user_obj.username = user['username']
-                login_user(user_obj)
-                
-                print(f"Login successful for user: {username}")  # Debug log
-                return redirect(url_for('main_index'))
-            else:
-                flash('Invalid username or password')
-                return redirect(url_for('index'))
-                
+            # Query to check for the user's email
+            cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+            user_data = cursor.fetchone()
+
+            # Validate user and password
+            if user_data and check_password_hash(user_data['password'], password):  # Use hashed password check
+                user = User(user_data['id'], user_data['username'], user_data['email'])  # Create User object
+                login_user(user)  # Log in the user with Flask-Login
+                session['user_id'] = user.id  # Store user ID in session
+                return redirect(url_for('main_index'))  # Redirect to main_index on successful login
+
+            return "Invalid email or password", 401  # Handle invalid login
         except Exception as e:
-            print(f"Login error: {str(e)}")  # Error log
-            flash('An error occurred during login')
-            return redirect(url_for('index'))
-    
-    return redirect(url_for('index'))
+            return f"An error occurred: {e}", 500  # Handle unexpected errors
+        finally:
+            cursor.close()
+            conn.close()  # Ensure the database connection is closed
+
+    # Render the login form for GET requests
+    return render_template('homepage.html')
 
 
 

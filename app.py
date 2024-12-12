@@ -715,86 +715,62 @@ def register():
             password = request.form.get('password')
             confirm_password = request.form.get('confirm_password')
 
-            # Debug print
-            print(f"Registration attempt for username: {username}")
-
             # Basic validation
             if not all([first_name, last_name, username, email, password, confirm_password]):
-                print("Validation failed: Missing required fields")
                 flash('All fields are required')
-                return redirect(url_for('homepage'))
+                return redirect(url_for('homepage'))  # Changed from register to homepage
 
             if password != confirm_password:
-                print("Validation failed: Passwords don't match")
                 flash('Passwords do not match')
-                return redirect(url_for('homepage'))
+                return redirect(url_for('register'))
 
             # Connect to the database
             conn = get_db_connection()
-            if not conn:
-                print("Database connection failed")
-                flash('Registration failed - Database connection error')
-                return redirect(url_for('homepage'))
-
             cursor = conn.cursor(dictionary=True)
 
-            try:
-                # Check if username or email already exists
-                cursor.execute("SELECT id FROM users WHERE username = %s OR email = %s", (username, email))
-                existing_user = cursor.fetchone()
-                
-                if existing_user:
-                    print("User already exists")
-                    flash('Username or email already exists')
-                    return redirect(url_for('homepage'))
+            # Check if username or email already exists
+            cursor.execute("SELECT id FROM users WHERE username = %s OR email = %s", (username, email))
+            existing_user = cursor.fetchone()
+            
+            if existing_user:
+                flash('Username or email already exists')
+                return redirect(url_for('register'))
 
-                # Hash password and insert new user
-                hashed_password = generate_password_hash(password)
+            # Hash password and insert new user
+            hashed_password = generate_password_hash(password)
+            cursor.execute("""
+                INSERT INTO users (first_name, last_name, username, email, password)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (first_name, last_name, username, email, hashed_password))
+            
+            conn.commit()
+            
+            # Get the new user's ID
+            cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+            user_data = cursor.fetchone()
+            
+            cursor.close()
+            conn.close()
+
+            if user_data:
+                # Log the user in
+                user = User()
+                user.id = user_data['id']
+                user.username = username
+                login_user(user)
                 
-                # Debug print the SQL query
-                insert_query = """
-                    INSERT INTO users (first_name, last_name, username, email, password)
-                    VALUES (%s, %s, %s, %s, %s)
-                """
-                print(f"Executing query with values: {(first_name, last_name, username, email, '[HIDDEN]')}")
+                # Store user_id in session
+                session['user_id'] = user_data['id']
                 
-                cursor.execute(insert_query, (first_name, last_name, username, email, hashed_password))
-                conn.commit()
-                
-                # Get the new user's ID
-                cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
-                user_data = cursor.fetchone()
-                
-                if user_data:
-                    # Create User object and log in
-                    user = User(user_data['id'], username, email)
-                    login_user(user)
-                    session['user_id'] = user_data['id']
-                    
-                    print(f"User registered successfully: {username}")
-                    flash('Registration successful!')
-                    return redirect(url_for('main_index'))
-                else:
-                    print("Failed to retrieve user data after registration")
-                    flash('Registration failed - Please try again')
-                    return redirect(url_for('homepage'))
-                
-            except Exception as e:
-                print(f"Database error during registration: {str(e)}")
-                conn.rollback()
-                flash('Registration failed - Database error')
-                return redirect(url_for('homepage'))
-            finally:
-                cursor.close()
-                conn.close()
-                
+                flash('Registration successful!')
+                return redirect(url_for('main_index'))
+            
         except Exception as e:
             print(f"Registration error: {str(e)}")
             flash('An error occurred during registration')
-            return redirect(url_for('homepage'))
+            return redirect(url_for('register'))
 
-    # For GET requests, redirect to homepage
-    return redirect(url_for('homepage'))
+    return render_template('register.html')
 
 
 
@@ -1006,6 +982,8 @@ class StandaloneApplication(BaseApplication):
         return self.application
 
 if __name__ == '__main__':
+    init_db()
+    update_users_table()
     options = {
         'bind': '0.0.0.0:' + os.environ.get('PORT', '8080'),
         'workers': 4,

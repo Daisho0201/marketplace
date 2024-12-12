@@ -768,10 +768,9 @@ def register():
         except Exception as e:
             print(f"Registration error: {str(e)}")
             flash('An error occurred during registration')
-            return redirect(url_for('homepage'))
+            return redirect(url_for('register'))
 
-    # For GET requests, redirect to homepage
-    return redirect(url_for('homepage'))
+    return render_template('register.html')
 
 
 
@@ -886,19 +885,39 @@ def update_profile_picture():
 # Add this function to create/update the users table
 def update_users_table():
     conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        # Add profile_picture column if it doesn't exist
-        cursor.execute("""
-            ALTER TABLE users 
-            ADD COLUMN IF NOT EXISTS profile_picture VARCHAR(255)
-        """)
-        conn.commit()
-    except Exception as e:
-        print(f"Error updating users table: {e}")
-    finally:
-        cursor.close()
-        conn.close()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            
+            # Check and add columns one by one
+            columns = [
+                ('first_name', 'VARCHAR(255)'),
+                ('last_name', 'VARCHAR(255)'),
+                ('email', 'VARCHAR(255)'),
+                ('profile_picture', 'VARCHAR(255)')
+            ]
+            
+            for column_name, column_type in columns:
+                try:
+                    cursor.execute(f"""
+                        ALTER TABLE users 
+                        ADD COLUMN {column_name} {column_type}
+                    """)
+                    print(f"Added column {column_name}")
+                except Error as e:
+                    if "Duplicate column name" in str(e):
+                        print(f"Column {column_name} already exists")
+                    else:
+                        print(f"Error adding column {column_name}: {e}")
+            
+            conn.commit()
+            print("Users table updated successfully")
+            
+        except Error as e:
+            print(f"Error updating users table: {e}")
+        finally:
+            cursor.close()
+            conn.close()
 
 # Call this function when your app starts
 # Add this near the bottom of your file, before the if __name__ == '__main__': line

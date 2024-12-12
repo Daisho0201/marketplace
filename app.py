@@ -139,12 +139,37 @@ def user_info():
 
 # User class for Flask-Login
 class User(UserMixin):
-    def __init__(self, id, username, email):
-        self.id = id
-        self.username = username
-        self.email = email
+    def __init__(self):
+        self.id = None
+        self.username = None
+        self.email = None
+        self.first_name = None
+        self.last_name = None
         self.profile_picture = None
 
+    @staticmethod
+    def get(user_id):
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute('SELECT * FROM users WHERE id = %s', (user_id,))
+            user_data = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            
+            if user_data:
+                user = User()
+                user.id = user_data['id']
+                user.username = user_data['username']
+                user.email = user_data['email']
+                user.first_name = user_data['first_name']
+                user.last_name = user_data['last_name']
+                user.profile_picture = user_data.get('profile_picture')
+                return user
+            return None
+        except Exception as e:
+            print(f"Error in User.get: {str(e)}")
+            return None
 # Index route to display homepage
 @app.route('/')
 def index():
@@ -692,39 +717,69 @@ def login():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        # Collect data from the form
-        first_name = request.form['first_name']
-        last_name = request.form['last_name']
-        username = request.form['username']
-        email = request.form['email']
-        password = request.form['password']
-        confirm_password = request.form['confirm_password']
+        try:
+            # Collect data from the form
+            first_name = request.form.get('first_name')
+            last_name = request.form.get('last_name')
+            username = request.form.get('username')
+            email = request.form.get('email')
+            password = request.form.get('password')
+            confirm_password = request.form.get('confirm_password')
 
-        # Validate passwords match
-        if password != confirm_password:
-            return "Passwords do not match. Please try again."
+            # Basic validation
+            if not all([first_name, last_name, username, email, password, confirm_password]):
+                flash('All fields are required')
+                return redirect(url_for('register'))
 
-        # Connect to the database
-        conn = get_db_connection()
-        cursor = conn.cursor()
+            if password != confirm_password:
+                flash('Passwords do not match')
+                return redirect(url_for('register'))
 
-        # Check if the username or email already exists
-        cursor.execute("SELECT * FROM users WHERE username = %s OR email = %s", (username, email))
-        if cursor.fetchone():
-            return "Username or email already exists. Please try another."
+            # Connect to the database
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
 
-        # Hash the password and insert the new user into the database
-        hashed_password = generate_password_hash(password)
-        cursor.execute(
-            "INSERT INTO users (first_name, last_name, username, email, password) VALUES (%s, %s, %s, %s, %s)",
-            (first_name, last_name, username, email, hashed_password)
-        )
-        conn.commit()
-        cursor.close()
-        conn.close()
+            # Check if username or email already exists
+            cursor.execute("SELECT id FROM users WHERE username = %s OR email = %s", (username, email))
+            existing_user = cursor.fetchone()
+            
+            if existing_user:
+                flash('Username or email already exists')
+                return redirect(url_for('register'))
 
-        # Redirect to the login page upon successful registration
-        return redirect(url_for('login'))
+            # Hash password and insert new user
+            hashed_password = generate_password_hash(password)
+            cursor.execute("""
+                INSERT INTO users (first_name, last_name, username, email, password)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (first_name, last_name, username, email, hashed_password))
+            
+            conn.commit()
+            
+            # Get the new user's ID
+            cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+            user_data = cursor.fetchone()
+            
+            cursor.close()
+            conn.close()
+
+            if user_data:
+                # Log the user in
+                user = User()
+                user.id = user_data['id']
+                user.username = username
+                login_user(user)
+                
+                # Store user_id in session
+                session['user_id'] = user_data['id']
+                
+                flash('Registration successful!')
+                return redirect(url_for('main_index'))
+            
+        except Exception as e:
+            print(f"Registration error: {str(e)}")
+            flash('An error occurred during registration')
+            return redirect(url_for('register'))
 
     return render_template('register.html')
 
@@ -897,5 +952,51 @@ def create_tables():
     cursor.close()
     conn.close()
 
+def init_db():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Create users table if it doesn't exist
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                first_name VARCHAR(100) NOT NULL,
+                last_name VARCHAR(100) NOT NULL,
+                username VARCHAR(100) UNIQUE NOT NULL,
+                email VARCHAR(100) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                profile_picture VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Create saved_items table if it doesn't exist
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS saved_items (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                item_id INT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (item_id) REFERENCES items(id),
+                UNIQUE KEY unique_saved_item (user_id, item_id)
+            )
+        ''')
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print("Database initialized successfully")
+        
+    except Exception as e:
+        print(f"Error initializing database: {str(e)}")
+
+
+
+# Initialize the database when the application starts
+init_db()
+create_items_table()
+
 if __name__ == '__main__':
-    create_tables()
+    app.run(debug=True)

@@ -5,6 +5,7 @@ from flask import Flask, jsonify, render_template, request, redirect, url_for, s
 from PIL import Image
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+from gunicorn.app.base import BaseApplication
 import mysql.connector
 import MySQLdb
 from mysql.connector import Error
@@ -999,4 +1000,5 @@ init_db()
 create_items_table()
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)

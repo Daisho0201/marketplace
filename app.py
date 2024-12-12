@@ -255,13 +255,25 @@ def delete_item(item_id):
 
 # Function to get user items
 def get_user_items(user_id):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM items WHERE user_id = %s", (user_id,))
-    items = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return items
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Changed user_id to seller_id in the WHERE clause
+        cursor.execute("""
+            SELECT i.*, u.username as seller_name 
+            FROM items i 
+            JOIN users u ON i.seller_id = u.id 
+            WHERE i.seller_id = %s
+        """, (user_id,))
+        
+        items = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return items
+    except Exception as e:
+        print(f"Error getting user items: {str(e)}")
+        return []
 
 # Function to get all items
 def get_all_items():
@@ -275,12 +287,35 @@ def get_all_items():
 
 # Route for main index
 @app.route('/main_index')
-@login_required  # Ensure the user is logged in
+@login_required
 def main_index():
-    user_id = session['user_id']  # Assuming user_id is stored in the session
-    user_items = get_user_items(user_id)  # Fetch user items from the database
-    all_items = get_all_items()  # Fetch all items for display
-    return render_template('main_index.html', user_items=user_items, all_items=all_items)
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get all items
+        cursor.execute("""
+            SELECT i.*, u.username as seller_name 
+            FROM items i 
+            JOIN users u ON i.seller_id = u.id 
+            ORDER BY i.created_at DESC
+        """)
+        all_items = cursor.fetchall()
+        
+        # Get user's items
+        user_items = get_user_items(current_user.id)
+        
+        cursor.close()
+        conn.close()
+        
+        return render_template('main_index.html', 
+                             username=current_user.username,
+                             all_items=all_items,
+                             user_items=user_items)
+    except Exception as e:
+        print(f"Error in main_index: {str(e)}")
+        flash('An error occurred while loading the page')
+        return redirect(url_for('index'))
 
 
 @app.route('/filter/<category>', methods=['GET'])
@@ -654,36 +689,39 @@ def proceed_purchase(item_id):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        email = request.form.get('email')  # Fetch email instead of username
-        password = request.form.get('password')
-
-        if not email or not password:  # Check for missing email or password
-            return "Missing email or password", 400  # Return an informative error
-
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-
         try:
-            # Query to check for the user's email
-            cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
-            user_data = cursor.fetchone()
-
-            # Validate user and password
-            if user_data and check_password_hash(user_data['password'], password):  # Use hashed password check
-                user = User(user_data['id'], user_data['username'], user_data['email'])  # Create User object
-                login_user(user)  # Log in the user with Flask-Login
-                session['user_id'] = user.id  # Store user ID in session
-                return redirect(url_for('main_index'))  # Redirect to main_index on successful login
-
-            return "Invalid email or password", 401  # Handle invalid login
-        except Exception as e:
-            return f"An error occurred: {e}", 500  # Handle unexpected errors
-        finally:
+            username = request.form.get('username')
+            password = request.form.get('password')
+            
+            if not username or not password:
+                flash('Please enter both username and password')
+                return redirect(url_for('index'))
+            
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
+            user = cursor.fetchone()
+            
             cursor.close()
-            conn.close()  # Ensure the database connection is closed
-
-    # Render the login form for GET requests
-    return render_template('homepage.html')
+            conn.close()
+            
+            if user and check_password_hash(user['password'], password):
+                user_obj = User()
+                user_obj.id = user['id']
+                user_obj.username = user['username']
+                login_user(user_obj)
+                return redirect(url_for('main_index'))
+            else:
+                flash('Invalid username or password')
+                return redirect(url_for('index'))
+                
+        except Exception as e:
+            print(f"Login error: {str(e)}")
+            flash('An error occurred during login')
+            return redirect(url_for('index'))
+    
+    return redirect(url_for('index'))
 
 
 
@@ -896,17 +934,19 @@ def create_tables():
     cursor.close()
     conn.close()
 
+# Initialize database tables
 def init_db():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-
-        # Add profile_picture column if it doesn't exist
+        
+        # Check if profile_picture column exists
         cursor.execute("""
             SELECT COUNT(*) 
             FROM information_schema.columns 
             WHERE table_name = 'users' 
             AND column_name = 'profile_picture'
+            AND table_schema = DATABASE()
         """)
         
         if cursor.fetchone()[0] == 0:
@@ -916,10 +956,10 @@ def init_db():
             """)
             conn.commit()
             print("Added profile_picture column to users table")
-
+        
         cursor.close()
         conn.close()
-
+        
     except Exception as e:
         print(f"Error initializing database: {str(e)}")
 

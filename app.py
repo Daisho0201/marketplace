@@ -46,6 +46,7 @@ os.makedirs(DETAIL_UPLOAD_FOLDER, exist_ok=True)
 # Initialize Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
+login_manager.login_view = 'login'
 
 # Allowed file check
 def allowed_file(filename):
@@ -140,10 +141,10 @@ def user_info():
 
 # User class for Flask-Login
 class User(UserMixin):
-    def __init__(self):
-        self.id = None
-        self.username = None
-        self.email = None
+    def __init__(self, id=None, username=None, email=None):
+        self.id = id
+        self.username = username
+        self.email = email
         self.first_name = None
         self.last_name = None
         self.profile_picture = None
@@ -159,12 +160,13 @@ class User(UserMixin):
             conn.close()
             
             if user_data:
-                user = User()
-                user.id = user_data['id']
-                user.username = user_data['username']
-                user.email = user_data['email']
-                user.first_name = user_data['first_name']
-                user.last_name = user_data['last_name']
+                user = User(
+                    id=user_data['id'],
+                    username=user_data['username'],
+                    email=user_data['email']
+                )
+                user.first_name = user_data.get('first_name')
+                user.last_name = user_data.get('last_name')
                 user.profile_picture = user_data.get('profile_picture')
                 return user
             return None
@@ -797,15 +799,7 @@ def logout():
 # User loader function for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
-    user_data = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    if user_data:
-        return User(user_data['id'], user_data['username'], user_data['email'])
-    return None
+    return User.get(user_id)
 
 # Ensure to create the items table when the application starts
 create_items_table()
